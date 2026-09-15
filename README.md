@@ -133,3 +133,42 @@ can make** in a given time and reject the extra ones, and **block callers that
 look fake or send an abnormal number of requests**. This keeps the system fast
 for the real OCR/AI engines and stops one bad actor from slowing it down for
 everyone.
+
+---
+
+## What this project does (summary)
+
+- **Ingestion (`POST /events`)** — accepts raw processing events, validates the
+  required fields, normalizes the messy ones (missing / `null` / `"undefined"`),
+  stores the raw event, and updates the corresponding document's state.
+- **Normalization** — a missing or empty `provider` defaults to
+  `internal-engine`; `documentType` and `metadata` fall back to `null` when
+  absent. Bad data never crashes the app or the reports.
+- **Idempotency** — the same event sent twice is ignored (no duplicates, no
+  errors), so engines can safely retry.
+- **Merge rules** — the newest event (by `createdAt`) wins, and a `FAILED` event
+  never overwrites a document already `PROCESSED`.
+- **Reports (`GET /reports/summary`)** — status distribution and document-type
+  percentages, computed with a single MongoDB aggregation pipeline and backed by
+  indexes.
+- **Error handling** — a global filter returns every error in the same JSON
+  format with a consistent HTTP status code.
+- **Tests** — unit tests for the services (ingestion, merge rules, reports).
+
+## AI assistance
+
+I used an AI assistant (Claude) as a support tool during development. It helped
+me:
+
+- review my initial code and point out edge cases and possible bugs,
+- make the ingestion and merge logic safer (idempotency and atomic updates),
+- add the global exception filter and the service tests,
+- and improve the wording and structure of this README — organizing it into
+  clear sections (run instructions first, then API, design, assumptions and
+  scaling), rephrasing technical explanations into plain language so they're easy
+  to follow, keeping a consistent tone throughout, and making sure the
+  assumptions and scaling notes are written clearly and are easy to read.
+
+All decisions were reviewed and validated by me; I used the assistant to move
+faster and to double-check my reasoning, not as a replacement for understanding
+the code.
