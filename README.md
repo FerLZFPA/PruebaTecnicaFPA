@@ -1,11 +1,3 @@
-# Document Processing Pipeline & Analytics
-
-A NestJS service that ingests messy, out-of-order "Processing Events" from OCR/AI
-engines, normalizes them into a per-document state, and exposes an analytics
-summary for the Ops team via MongoDB aggregation pipelines.
-
----
-
 ## Running the project
 
 ### Prerequisites
@@ -32,33 +24,9 @@ This starts MongoDB 7 on `localhost:27017` (see `docker-compose.yml`).
 ```bash
 # watch mode (development)
 npm run start:dev
-
-# or production build
-npm run build
-npm run start:prod
 ```
 
 The API listens on **http://localhost:3000**.
-
-### Configuration
-
-Both are optional and fall back to sane defaults:
-
-| Variable       | Default                                          |
-| -------------- | ------------------------------------------------ |
-| `PORT`         | `3000`                                           |
-| `MONGODB_URI`  | `mongodb://localhost:27017/processing-events`    |
-
-### Running the tests
-
-```bash
-npm test
-```
-
-> The `@nestjs` v12 stack ships as ESM only, so Jest runs in ESM mode
-> (`node --experimental-vm-modules`, already wired into the `test` scripts).
-
----
 
 ## API
 
@@ -79,20 +47,6 @@ curl -X POST http://localhost:3000/events \
     "provider": "aws-textract",
     "metadata": { "pages": 3 },
     "createdAt": "2026-09-14T10:00:00.000Z"
-  }'
-```
-
-A minimal payload is also accepted (optional fields are normalized):
-
-```bash
-curl -X POST http://localhost:3000/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventId": "evt-2",
-    "documentId": "doc-2",
-    "status": "MANUAL_INPUT",
-    "provider": "undefined",
-    "createdAt": "2026-09-14T11:00:00.000Z"
   }'
 ```
 
@@ -119,76 +73,6 @@ Liveness probe → `{ "status": "ok" }`.
 
 ---
 
-## Design overview
-
-### Modules
-
-- **`EventsModule`** — ingestion endpoint, validation/normalization, raw-event
-  persistence, and delegation to `DocumentsModule`.
-- **`DocumentsModule`** — owns the `Document` projection and the merge rules.
-  Exports `DocumentsService` (consumed by `EventsModule`), so dependency
-  injection stays one-directional and clean.
-- **`ReportsModule`** — read-only analytics over the `Document` collection.
-
-Normalization lives in a dedicated `EventsMapper`, keeping the service thin.
-
-### Two collections
-
-- **`events`** — the raw, immutable event log (source of truth / audit trail).
-- **`documents`** — the current, normalized state of each document, derived by
-  folding events in.
-
-### Schema design & indices
-
-**`Event`**
-
-- `timestamps` enabled, but the auto `createdAt` is renamed to **`insertedAt`**
-  so it doesn't collide with the business `createdAt` from the payload.
-- `eventId` — **unique** index (idempotency key).
-- `documentId` — indexed; plus a compound `{ documentId: 1, createdAt: -1 }`
-  index to fetch a document's event history in order efficiently.
-- `status` uses an explicit `{ type: String, enum: ProcessingStatus }` so
-  Mongoose infers the type reliably.
-
-**`Document`**
-
-- `timestamps` enabled.
-- `documentId` — **unique** index (one document per id).
-- `status` — indexed (drives the Status Distribution grouping).
-- `lastEventCreatedAt` — the `createdAt` of the last event applied; used to
-  reject stale/out-of-order events.
-
-### The aggregation pipeline
-
-`GET /reports/summary` is a single `$facet` pipeline (no `find()` fan-out, no
-manual JS array manipulation):
-
-- one facet groups by `status` (Status Distribution),
-- another filters to the known document types, groups, and computes each type's
-  percentage of the total,
-- the percentage division is guarded with `$cond` so an empty collection (total
-  = 0) never throws.
-
-### Error handling
-
-A global `AllExceptionsFilter` returns a consistent JSON envelope
-(`{ statusCode, path, message }`): `HttpException`s (including 400s from the
-`ValidationPipe`) keep their status, Mongo duplicate keys map to `409`, and
-anything unexpected is logged server-side and returned as `500`.
-
-### Data resilience
-
-- **Idempotency** — the event is written with a single atomic
-  `findOneAndUpdate({ eventId }, { $setOnInsert }, { upsert: true })`, so
-  redelivering the same event is a no-op and concurrent duplicates can't collide.
-- **Out-of-order & conflicting events** — the `Document` merge runs as one
-  atomic aggregation-pipeline update (no read-then-write race). Older events are
-  ignored, and a later `FAILED` never overwrites a `PROCESSED` document.
-- **Messy fields** — `provider`, `documentType`, and `metadata` accept missing /
-  `null` / `"undefined"` and are normalized before persistence; the reporting
-  pipeline tolerates `null` fields without breaking.
-
----
 
 ## Assumptions
 
