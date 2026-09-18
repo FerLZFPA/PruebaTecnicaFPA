@@ -11,18 +11,6 @@ export class DocumentsService {
     private readonly documentModel: Model<DocumentDocument>,
   ) {}
 
-  /**
-   * Folds a single processing event into the Document projection.
-   *
-   * Runs as ONE atomic aggregation-pipeline update (no read-then-write race),
-   * so concurrent events for the same documentId cannot clobber each other.
-   *
-   * Merge rules (see README "Assumptions"):
-   *  1. Recency wins: only an event newer than the last applied one mutates the
-   *     document. Out-of-order / stale replays are ignored.
-   *  2. PROCESSED is terminal for FAILED: a later FAILED event never overwrites
-   *     a document already in PROCESSED. Any other transition follows rule (1).
-   */
   async upsertFromEvent(event: {
     documentId: string;
     status: string;
@@ -77,6 +65,7 @@ export class DocumentsService {
       {
         upsert: true,
         new: true,
+        updatePipeline: true,
       },
     );
   }
